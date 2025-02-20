@@ -2,16 +2,29 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>動画プレーヤー</title>
   <style>
-  
+    :root {
+      --bg-gradient-start: #f8bbd0;
+      --bg-gradient-end: #fce4ec;
+      --border-color: #ffc1e3;
+      --button-bg-start: #ffccff;
+      --button-bg-end: #ffe6f2;
+      --slider-track-color: #ffccff;
+      --slider-thumb-color: #ffe6f2;
+      --time-display-bg: rgba(0,0,0,0.5);
+      --overlay-transition: 0.5s;
+    }
+    
     body {
       margin: 0;
       padding: 0;
-      background: linear-gradient(135deg, #f8bbd0, #fce4ec);
+      background: linear-gradient(135deg, var(--bg-gradient-start), var(--bg-gradient-end));
       font-family: 'Comic Sans MS', cursive, sans-serif;
       color: #333;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
     }
   
     #videoContainer {
@@ -19,13 +32,14 @@
       max-width: 100%;
       margin: 20px auto;
       background: black;
-      border: 5px solid #ffc1e3;
+      border: 5px solid var(--border-color);
       border-radius: 10px;
       overflow: hidden;
       box-shadow: 0 4px 10px rgba(0,0,0,0.3);
-      transition: all 0.3s;
+      transition: all 0.3s ease;
+      will-change: transform, opacity;
     }
-    
+  
     #videoContainer.fullscreen {
       position: fixed;
       top: 0;
@@ -37,19 +51,28 @@
       border-radius: 0;
       z-index: 9999;
     }
-    
+
+    #videoContainer.rotated {
+      transform: rotate(90deg);
+      transform-origin: center center;
+    }
+  
     video {
       width: 100%;
       height: auto;
       display: block;
       background: black;
+      will-change: transform;
+      transform: translateZ(0);
     }
+  
     #videoContainer.fullscreen video {
       width: 100%;
       height: 100%;
       object-fit: contain;
+      object-position: center center;
     }
-
+    
     #overlay {
       position: absolute;
       top: 0;
@@ -58,7 +81,8 @@
       bottom: 0;
       background: transparent;
       opacity: 1;
-      transition: opacity 0.5s;
+      transition: opacity var(--overlay-transition) ease;
+      will-change: opacity;
     }
     #overlay.hidden {
       opacity: 0;
@@ -74,7 +98,7 @@
     }
     .area.left { left: 0; }
     .area.right { right: 0; }
-
+    
     #controlBar {
       position: absolute;
       bottom: 10px;
@@ -92,7 +116,7 @@
     }
   
     .button {
-      background: linear-gradient(145deg, #ffccff, #ffe6f2);
+      background: linear-gradient(145deg, var(--button-bg-start), var(--button-bg-end));
       border: none;
       border-radius: 50%;
       padding: 8px;
@@ -100,7 +124,8 @@
       cursor: pointer;
       outline: none;
       box-shadow: 2px 2px 5px rgba(0,0,0,0.2);
-      transition: transform 0.2s, opacity 0.5s;
+      transition: transform 0.2s ease, opacity 0.5s ease;
+      will-change: transform;
     }
     .button:active { transform: scale(0.95); }
     
@@ -111,7 +136,7 @@
     }
     #seekBar::-webkit-slider-runnable-track {
       height: 6px;
-      background: #ffccff;
+      background: var(--slider-track-color);
       border-radius: 3px;
     }
     #seekBar::-webkit-slider-thumb {
@@ -119,14 +144,14 @@
       height: 16px;
       width: 16px;
       border-radius: 50%;
-      background: #ffe6f2;
+      background: var(--slider-thumb-color);
       margin-top: -5px;
     }
-
+  
     #timeDisplay {
       font-size: 14px;
       color: #fff;
-      background: rgba(0,0,0,0.5);
+      background: var(--time-display-bg);
       padding: 2px 4px;
       border-radius: 3px;
       min-width: 75px;
@@ -137,20 +162,20 @@
       display: block;
       margin: 10px auto;
       padding: 10px;
-      border: 2px dashed #ffc1e3;
+      border: 2px dashed var(--border-color);
       border-radius: 10px;
       background: #fff0f6;
       font-size: 16px;
+      cursor: pointer;
     }
   </style>
 </head>
 <body>
+  
   <input type="file" id="videoFileInput">
   
-  
   <div id="videoContainer">
-    <video id="video" playsinline webkit-playsinline></video>
-    
+    <video id="video" playsinline webkit-playsinline preload="auto"></video>
     <div id="overlay">
       <div class="area left"></div>
       <div class="area right"></div>
@@ -167,11 +192,17 @@
   </div>
   
   <script>
-    const config = {
-      frameStep: 3,       
-      overlayHideDelay: 1000 
-    };
-
+    'use strict';
+    
+    const configData = JSON.parse(`{
+      "frameStep": 3,
+      "overlayHideDelay": 1000,
+      "orientationLock": "landscape",
+      "useServiceWorker": true
+    }`);
+    
+    let overlayTimeout = null;
+    
     const videoContainer = document.getElementById('videoContainer');
     const video = document.getElementById('video');
     const videoFileInput = document.getElementById('videoFileInput');
@@ -183,8 +214,9 @@
     const rightArea = document.querySelector('.area.right');
     const seekBar = document.getElementById('seekBar');
     const timeDisplay = document.getElementById('timeDisplay');
-    let overlayTimeout = null;
-
+    
+    const passiveOptions = { passive: true };
+    
     
     videoFileInput.addEventListener('change', (e) => {
       const file = e.target.files[0];
@@ -193,27 +225,31 @@
         video.src = fileURL;
         video.load();
       }
-    });
-
+    }, passiveOptions);
     
+  
     playButton.addEventListener('click', (e) => {
       e.stopPropagation();
       video.play();
       updatePlayPauseButtons();
       showOverlay();
     });
-
     
+
     pauseButton.addEventListener('click', (e) => {
       e.stopPropagation();
       video.pause();
       updatePlayPauseButtons();
       showOverlay();
     });
-
+    
+    video.addEventListener('ended', () => {
+      updatePlayPauseButtons();
+      showOverlay();
+    });
     
     function updatePlayPauseButtons() {
-      if (video.paused) {
+      if (video.paused || video.ended) {
         playButton.disabled = false;
         pauseButton.disabled = true;
       } else {
@@ -222,14 +258,14 @@
       }
     }
     updatePlayPauseButtons();
-
-  
+    
+    
     fullscreenButton.addEventListener('click', (e) => {
       e.stopPropagation();
       toggleFullScreen();
       showOverlay();
     });
-
+    
     function toggleFullScreen() {
       if (document.fullscreenElement || document.webkitFullscreenElement) {
         if (document.exitFullscreen) {
@@ -238,6 +274,7 @@
           document.webkitExitFullscreen();
         }
         fullscreenButton.textContent = "全画面";
+        videoContainer.classList.remove('rotated');
         if (screen.orientation && screen.orientation.unlock) {
           screen.orientation.unlock();
         }
@@ -247,68 +284,55 @@
         } else if (videoContainer.webkitRequestFullscreen) {
           videoContainer.webkitRequestFullscreen();
         } else if (video.webkitEnterFullscreen) {
-        
           video.webkitEnterFullscreen();
         } else {
-        
           videoContainer.classList.add('fullscreen');
         }
         fullscreenButton.textContent = "縮小";
-      
         if (screen.orientation && screen.orientation.lock) {
-          screen.orientation.lock('landscape').catch((err) => {
+          screen.orientation.lock(configData.orientationLock).catch((err) => {
             console.log("Orientation lock failed:", err);
+            if (/Mobi/.test(navigator.userAgent)) {
+              videoContainer.classList.add('rotated');
+            }
           });
+        } else {
+          if (/Mobi/.test(navigator.userAgent)) {
+            videoContainer.classList.add('rotated');
+          }
         }
       }
     }
-
-  
+    
     document.addEventListener("fullscreenchange", () => {
-      if (!document.fullscreenElement) {
-        fullscreenButton.textContent = "全画面";
-        if (screen.orientation && screen.orientation.unlock) {
-          screen.orientation.unlock();
-        }
-      } else {
-        fullscreenButton.textContent = "縮小";
-      }
+      fullscreenButton.textContent = document.fullscreenElement ? "縮小" : "全画面";
     });
     document.addEventListener("webkitfullscreenchange", () => {
-      if (!document.webkitFullscreenElement) {
-        fullscreenButton.textContent = "全画面";
-        if (screen.orientation && screen.orientation.unlock) {
-          screen.orientation.unlock();
-        }
-      } else {
-        fullscreenButton.textContent = "縮小";
-      }
+      fullscreenButton.textContent = document.webkitFullscreenElement ? "縮小" : "全画面";
     });
-
     
-    leftArea.addEventListener('click', (e) => {
+    
+    leftArea.addEventListener('touchstart', (e) => {
       e.stopPropagation();
-      video.currentTime = Math.max(0, video.currentTime - config.frameStep);
+      video.currentTime = Math.max(0, video.currentTime - configData.frameStep);
       showOverlay();
-    });
-
-  
-    rightArea.addEventListener('click', (e) => {
+    }, passiveOptions);
+    rightArea.addEventListener('touchstart', (e) => {
       e.stopPropagation();
       if (!isNaN(video.duration)) {
-        video.currentTime = Math.min(video.duration, video.currentTime + config.frameStep);
+        video.currentTime = Math.min(video.duration, video.currentTime + configData.frameStep);
       }
       showOverlay();
-    });
-
+    }, passiveOptions);
+    
     
     function formatTime(seconds) {
       const minutes = Math.floor(seconds / 60);
       const secs = Math.floor(seconds % 60);
       return (minutes < 10 ? "0" + minutes : minutes) + ":" + (secs < 10 ? "0" + secs : secs);
     }
-
-  
+    
+    
     video.addEventListener('timeupdate', () => {
       if (video.duration) {
         const progress = (video.currentTime / video.duration) * 100;
@@ -316,14 +340,13 @@
         timeDisplay.textContent = formatTime(video.currentTime) + " / " + formatTime(video.duration);
       }
     });
-    
     video.addEventListener('loadedmetadata', () => {
       if (video.duration) {
         timeDisplay.textContent = formatTime(video.currentTime) + " / " + formatTime(video.duration);
       }
     });
-
     
+
     seekBar.addEventListener('input', (e) => {
       if (video.duration) {
         const seekTime = (e.target.value / 100) * video.duration;
@@ -331,22 +354,78 @@
       }
       showOverlay();
     });
-
+    
   
     function showOverlay() {
       overlay.classList.remove('hidden');
       if (overlayTimeout) clearTimeout(overlayTimeout);
       overlayTimeout = setTimeout(() => {
         overlay.classList.add('hidden');
-      }, config.overlayHideDelay);
+      }, configData.overlayHideDelay);
     }
-
-  
+    
     videoContainer.addEventListener('click', () => {
       showOverlay();
     });
+    
 
     showOverlay();
+  </script>
+  
+  <script id="sw-script" type="javascript/worker">
+    'use strict';
+    const CACHE_NAME = 'video-player-cache-v1';
+    const urlsToCache = [
+      '/',           
+      '/index.html', 
+    ];
+    
+    self.addEventListener('install', (event) => {
+      self.skipWaiting();
+      event.waitUntil(
+        caches.open(CACHE_NAME)
+          .then((cache) => {
+            console.log('Service Worker: キャッシュにリソースを追加中...');
+            return cache.addAll(urlsToCache);
+          })
+      );
+    });
+    
+    self.addEventListener('activate', (event) => {
+      event.waitUntil(
+        caches.keys().then((cacheNames) => Promise.all(
+          cacheNames.map((cacheName) => {
+            if (cacheName !== CACHE_NAME) {
+              console.log('Service Worker: 古いキャッシュを削除中:', cacheName);
+              return caches.delete(cacheName);
+            }
+          })
+        ))
+      );
+      self.clients.claim();
+    });
+    
+    self.addEventListener('fetch', (event) => {
+      event.respondWith(
+        caches.match(event.request)
+          .then((response) => response || fetch(event.request))
+      );
+    });
+  </script>
+  
+  <script>
+    (function() {
+      if ('serviceWorker' in navigator && configData.useServiceWorker) {
+        const swScript = document.getElementById('sw-script').textContent;
+        const blob = new Blob([swScript], { type: 'application/javascript' });
+        const blobURL = URL.createObjectURL(blob);
+        navigator.serviceWorker.register(blobURL).then(registration => {
+          console.log('Inline ServiceWorker registered:', registration.scope);
+        }).catch(error => {
+          console.error('ServiceWorker registration failed:', error);
+        });
+      }
+    })();
   </script>
 </body>
 </html>
