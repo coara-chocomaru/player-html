@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>テスト動画プレーヤー</title>
+  <style>
+  
+    body {
+      margin: 0;
+      padding: 0;
+      background: linear-gradient(135deg, #f8bbd0, #fce4ec);
+      font-family: 'Comic Sans MS', cursive, sans-serif;
+      color: #333;
+    }
+  
+    #videoContainer {
+      position: relative;
+      max-width: 100%;
+      margin: 20px auto;
+      background: black;
+      border: 5px solid #ffc1e3;
+      border-radius: 10px;
+      overflow: hidden;
+      box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+      transition: all 0.3s;
+    }
+    
+    #videoContainer.fullscreen {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      margin: 0;
+      border: none;
+      border-radius: 0;
+      z-index: 9999;
+    }
+    
+    video {
+      width: 100%;
+      height: auto;
+      display: block;
+      background: black;
+    }
+    #videoContainer.fullscreen video {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+    }
+
+    #overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: transparent;
+      opacity: 1;
+      transition: opacity 0.5s;
+    }
+    #overlay.hidden {
+      opacity: 0;
+      pointer-events: none;
+    }
+    
+    .area {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      width: 50%;
+      z-index: 1;
+    }
+    .area.left { left: 0; }
+    .area.right { right: 0; }
+
+    #controlBar {
+      position: absolute;
+      bottom: 10px;
+      left: 10px;
+      right: 10px;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      z-index: 10;
+    }
+  
+    #leftControls {
+      display: flex;
+      gap: 5px;
+    }
+  
+    .button {
+      background: linear-gradient(145deg, #ffccff, #ffe6f2);
+      border: none;
+      border-radius: 50%;
+      padding: 8px;
+      font-size: 14px;
+      cursor: pointer;
+      outline: none;
+      box-shadow: 2px 2px 5px rgba(0,0,0,0.2);
+      transition: transform 0.2s, opacity 0.5s;
+    }
+    .button:active { transform: scale(0.95); }
+    
+    #seekBar {
+      flex-grow: 1;
+      -webkit-appearance: none;
+      background: transparent;
+    }
+    #seekBar::-webkit-slider-runnable-track {
+      height: 6px;
+      background: #ffccff;
+      border-radius: 3px;
+    }
+    #seekBar::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      height: 16px;
+      width: 16px;
+      border-radius: 50%;
+      background: #ffe6f2;
+      margin-top: -5px;
+    }
+
+    #timeDisplay {
+      font-size: 14px;
+      color: #fff;
+      background: rgba(0,0,0,0.5);
+      padding: 2px 4px;
+      border-radius: 3px;
+      min-width: 75px;
+      text-align: center;
+    }
+  
+    #videoFileInput {
+      display: block;
+      margin: 10px auto;
+      padding: 10px;
+      border: 2px dashed #ffc1e3;
+      border-radius: 10px;
+      background: #fff0f6;
+      font-size: 16px;
+    }
+  </style>
+</head>
+<body>
+  <input type="file" id="videoFileInput">
+  
+  
+  <div id="videoContainer">
+    <video id="video" playsinline webkit-playsinline></video>
+    
+    <div id="overlay">
+      <div class="area left"></div>
+      <div class="area right"></div>
+      <div id="controlBar">
+        <div id="leftControls">
+          <button id="playButton" class="button">再生</button>
+          <button id="pauseButton" class="button">停止</button>
+        </div>
+        <input type="range" id="seekBar" value="0" min="0" max="100" step="0.1">
+        <div id="timeDisplay">00:00 / 00:00</div>
+        <button id="fullscreenButton" class="button" title="全画面">全画面</button>
+      </div>
+    </div>
+  </div>
+  
+  <script>
+    const config = {
+      frameStep: 3,       
+      overlayHideDelay: 1000 
+    };
+
+    const videoContainer = document.getElementById('videoContainer');
+    const video = document.getElementById('video');
+    const videoFileInput = document.getElementById('videoFileInput');
+    const playButton = document.getElementById('playButton');
+    const pauseButton = document.getElementById('pauseButton');
+    const fullscreenButton = document.getElementById('fullscreenButton');
+    const overlay = document.getElementById('overlay');
+    const leftArea = document.querySelector('.area.left');
+    const rightArea = document.querySelector('.area.right');
+    const seekBar = document.getElementById('seekBar');
+    const timeDisplay = document.getElementById('timeDisplay');
+    let overlayTimeout = null;
+
+    
+    videoFileInput.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (file) {
+        const fileURL = URL.createObjectURL(file);
+        video.src = fileURL;
+        video.load();
+      }
+    });
+
+    
+    playButton.addEventListener('click', (e) => {
+      e.stopPropagation();
+      video.play();
+      updatePlayPauseButtons();
+      showOverlay();
+    });
+
+    
+    pauseButton.addEventListener('click', (e) => {
+      e.stopPropagation();
+      video.pause();
+      updatePlayPauseButtons();
+      showOverlay();
+    });
+
+    
+    function updatePlayPauseButtons() {
+      if (video.paused) {
+        playButton.disabled = false;
+        pauseButton.disabled = true;
+      } else {
+        playButton.disabled = true;
+        pauseButton.disabled = false;
+      }
+    }
+    updatePlayPauseButtons();
+
+  
+    fullscreenButton.addEventListener('click', (e) => {
+      e.stopPropagation();
+      toggleFullScreen();
+      showOverlay();
+    });
+
+    function toggleFullScreen() {
+      if (document.fullscreenElement || document.webkitFullscreenElement) {
+        if (document.exitFullscreen) {
+          document.exitFullscreen();
+        } else if (document.webkitExitFullscreen) {
+          document.webkitExitFullscreen();
+        }
+        fullscreenButton.textContent = "全画面";
+        if (screen.orientation && screen.orientation.unlock) {
+          screen.orientation.unlock();
+        }
+      } else {
+        if (videoContainer.requestFullscreen) {
+          videoContainer.requestFullscreen();
+        } else if (videoContainer.webkitRequestFullscreen) {
+          videoContainer.webkitRequestFullscreen();
+        } else if (video.webkitEnterFullscreen) {
+        
+          video.webkitEnterFullscreen();
+        } else {
+        
+          videoContainer.classList.add('fullscreen');
+        }
+        fullscreenButton.textContent = "縮小";
+      
+        if (screen.orientation && screen.orientation.lock) {
+          screen.orientation.lock('landscape').catch((err) => {
+            console.log("Orientation lock failed:", err);
+          });
+        }
+      }
+    }
+
+  
+    document.addEventListener("fullscreenchange", () => {
+      if (!document.fullscreenElement) {
+        fullscreenButton.textContent = "全画面";
+        if (screen.orientation && screen.orientation.unlock) {
+          screen.orientation.unlock();
+        }
+      } else {
+        fullscreenButton.textContent = "縮小";
+      }
+    });
+    document.addEventListener("webkitfullscreenchange", () => {
+      if (!document.webkitFullscreenElement) {
+        fullscreenButton.textContent = "全画面";
+        if (screen.orientation && screen.orientation.unlock) {
+          screen.orientation.unlock();
+        }
+      } else {
+        fullscreenButton.textContent = "縮小";
+      }
+    });
+
+    
+    leftArea.addEventListener('click', (e) => {
+      e.stopPropagation();
+      video.currentTime = Math.max(0, video.currentTime - config.frameStep);
+      showOverlay();
+    });
+
+  
+    rightArea.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (!isNaN(video.duration)) {
+        video.currentTime = Math.min(video.duration, video.currentTime + config.frameStep);
+      }
+      showOverlay();
+    });
+
+    
+    function formatTime(seconds) {
+      const minutes = Math.floor(seconds / 60);
+      const secs = Math.floor(seconds % 60);
+      return (minutes < 10 ? "0" + minutes : minutes) + ":" + (secs < 10 ? "0" + secs : secs);
+    }
+
+  
+    video.addEventListener('timeupdate', () => {
+      if (video.duration) {
+        const progress = (video.currentTime / video.duration) * 100;
+        seekBar.value = progress;
+        timeDisplay.textContent = formatTime(video.currentTime) + " / " + formatTime(video.duration);
+      }
+    });
+    
+    video.addEventListener('loadedmetadata', () => {
+      if (video.duration) {
+        timeDisplay.textContent = formatTime(video.currentTime) + " / " + formatTime(video.duration);
+      }
+    });
+
+    
+    seekBar.addEventListener('input', (e) => {
+      if (video.duration) {
+        const seekTime = (e.target.value / 100) * video.duration;
+        video.currentTime = seekTime;
+      }
+      showOverlay();
+    });
+
+  
+    function showOverlay() {
+      overlay.classList.remove('hidden');
+      if (overlayTimeout) clearTimeout(overlayTimeout);
+      overlayTimeout = setTimeout(() => {
+        overlay.classList.add('hidden');
+      }, config.overlayHideDelay);
+    }
+
+  
+    videoContainer.addEventListener('click', () => {
+      showOverlay();
+    });
+
+    showOverlay();
+  </script>
+</body>
+</html>
